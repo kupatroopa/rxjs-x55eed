@@ -1,6 +1,6 @@
 import { Subject } from 'rxjs';
 import { concat, from, of, throwError, iif, combineLatest} from "rxjs";
-import { merge, map, withLatestFrom, mergeMap, concatMap, concatAll, last, catchError } from 'rxjs/operators';
+import { merge, map, withLatestFrom, mergeMap, concatMap, concatAll, last, catchError, filter, publish, share } from 'rxjs/operators';
 
 let cntr = 0;
 const transactionSubject = new Subject();
@@ -20,7 +20,7 @@ var sendTransaction = function(payload){
   //    cntr ++;
   // }
  
-  console.log("hello")
+  console.log("Recieved Transaction: " + payload)
   
 }
 
@@ -65,7 +65,15 @@ function u1(g){
   return new Promise((resolve, reject) => {
   setTimeout(()=> {
     console.log("u1 execute: " +g.transid);
-    resolve('u1: '+ g.transid);}, 200)
+    resolve(g);}, 200)
+});
+}
+
+function u2(g){
+  return new Promise((resolve, reject) => {
+  setTimeout(()=> {
+    console.log("u2 execute: " +g.transid);
+    resolve('u2: '+ g.transid);}, 200)
 });
 }
 
@@ -112,7 +120,7 @@ return from(s1(rs.transaction)).pipe(
     return of({error: err});
   }),
   mergeMap((rsy) => {
-    console.log("HJJ"+ JSON.stringify(rs))
+    //console.log("HJJ"+ JSON.stringify(rs))
     if(rs.networkStatus === 'offline'){
       return of(null)
     }else{
@@ -127,22 +135,40 @@ var transactionSubscriber= transactionSubject.subscribe();
 
 var networkSubscriber = networkStatus.subscribe();
 
-const transactionObservable = transactionSubject.pipe(withLatestFrom(networkStatus), map(
-  ([trans, status]) => {
-  return {transid: trans,
-  status: status}
-}))
+const transactionObservable = transactionSubject.pipe(
+  withLatestFrom(networkStatus), 
+  map(
+    ([trans, status]) => {
+    return {transid: trans,
+    status: status}}
+  ),
+  publish()
+)
+
+transactionObservable.connect()
 
 
 let persistTransactionObservable = transactionSubject.pipe(withLatestFrom(networkStatus),map((rs)=> {
   return {transaction: {transid: rs[0]}, networkStatus: rs[1]}
-}),concatMap((rs) => {console.log(rs.transaction); return atmS(rs)}));
+}),concatMap((rs) => {return atmS(rs)}), publish());
 
-//persistTransactionObservable.pipe()
+persistTransactionObservable.connect()
+
+let rsObservable = persistTransactionObservable.pipe(
+  filter(rs => {return rs !== null}),
+  mergeMap(rs => from(u2(rs))),
+  publish()
+)
+
+rsObservable.connect()
 
 persistTransactionObservable.subscribe(data => {
-  console.log(data)
+  console.log("Transaction persist ")
 });
+
+rsObservable.subscribe(data => {
+   //console.log(data)
+})
 
 // let combined = transactionSubject.pipe(merge(networkStatus))
 
@@ -154,6 +180,8 @@ networkChange('online')
 sendTransaction("t2");
 networkChange('offline')
 sendTransaction("t3");
+sendTransaction("t4");
+sendTransaction("t5");
 
 
 
