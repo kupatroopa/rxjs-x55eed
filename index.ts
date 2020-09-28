@@ -1,6 +1,6 @@
 import { Subject } from 'rxjs';
-import { concat, from} from "rxjs";
-import { merge, map, withLatestFrom, mergeMap, concatMap, concatAll, last } from 'rxjs/operators';
+import { concat, from, of, throwError, iif} from "rxjs";
+import { merge, map, withLatestFrom, mergeMap, concatMap, concatAll, last, catchError } from 'rxjs/operators';
 
 let cntr = 0;
 const transactionSubject = new Subject();
@@ -28,7 +28,7 @@ function s1(g){
   return new Promise((resolve, reject) => {
     setTimeout(()=> {
       console.log("s1 execute: " + g.transid);
-      resolve('s1: ' + g.transid);}, 1000)
+      reject();}, 1000)
 });
 }
 
@@ -40,6 +40,7 @@ function s2(g){
 });
 
 }
+
 function s3(g){
   return new Promise((resolve, reject) => {
   setTimeout(()=> {
@@ -48,11 +49,48 @@ function s3(g){
 });
 }
 
+function s4(g){
+  return new Promise((resolve, reject) => {
+  setTimeout(()=> {
+    console.log("s4 execute: " +g.transid);
+    resolve('s4: '+ g.transid);}, 200)
+});
+}
+
+function revertS1(g){
+  return new Promise((resolve, reject) => {
+  setTimeout(()=> {
+    console.log("Reverting S1");
+    resolve();}, 200)
+});
+}
+
+function revertS2(g){
+  return new Promise((resolve, reject) => {
+  setTimeout(()=> {
+    console.log("Reverting S2");
+    resolve();}, 200)
+});
+}
+
 
 let atmS = function(g){
 return from(s1(g)).pipe(
+  catchError(err => {
+    return from(revertS1('2')).pipe(concatMap(()=> throwError(err))
+  )}),
   mergeMap(() => s2(g)),
-  mergeMap(() => s3(g)))
+  catchError(err => {
+    return from(revertS2('2')).pipe(concatMap(()=> throwError(err))
+  )}),
+  mergeMap(() => s3(g)),
+  catchError(err => {
+    return throwError(err)
+  }),
+  mergeMap(() => s4(g)),
+  catchError(err => {
+    return of({error: err});
+  }))
 }
 
 
@@ -68,7 +106,7 @@ const transactionObservable = transactionSubject.pipe(withLatestFrom(networkStat
 }))
 
 
-let persistTransactionObservable = transactionObservable.pipe(mergeMap((transaction) => atmS(transaction)));
+let persistTransactionObservable = transactionObservable.pipe(concatMap((transaction) => atmS(transaction)));
 
 persistTransactionObservable.subscribe(data => {
   console.log(data)
