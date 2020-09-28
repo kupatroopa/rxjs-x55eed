@@ -28,7 +28,9 @@ function s1(g){
   return new Promise((resolve, reject) => {
     setTimeout(()=> {
       console.log("s1 execute: " + g.transid);
-      reject();}, 1000)
+        resolve('s1: '+ g.transid);},
+        //reject({chainid: 1});}, 
+      1000)
 });
 }
 
@@ -36,7 +38,9 @@ function s2(g){
   return new Promise((resolve, reject) => {
   setTimeout(()=> {
     console.log("s2 execute: "+ g.transid);
-    resolve('s2: '+ g.transid);}, 10)
+    resolve('s2: '+ g.transid);},
+    //reject({chainid: 2});}, 
+    10)
 });
 
 }
@@ -81,8 +85,14 @@ return from(s1(g)).pipe(
   )}),
   mergeMap(() => s2(g)),
   catchError(err => {
-    return from(revertS2('2')).pipe(concatMap(()=> throwError(err))
-  )}),
+    console.log(err.chainid)
+    if(err.chainid === 2){
+      return from(revertS2('2')).pipe(concatMap(()=> throwError(err)))
+    }else{
+      return throwError(err)
+    }
+    
+  }),
   mergeMap(() => s3(g)),
   catchError(err => {
     return throwError(err)
