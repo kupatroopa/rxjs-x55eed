@@ -1,5 +1,5 @@
 import { Subject } from 'rxjs';
-import { concat, from, of, throwError, iif} from "rxjs";
+import { concat, from, of, throwError, iif, combineLatest} from "rxjs";
 import { merge, map, withLatestFrom, mergeMap, concatMap, concatAll, last, catchError } from 'rxjs/operators';
 
 let cntr = 0;
@@ -61,6 +61,14 @@ function s4(g){
 });
 }
 
+function u1(g){
+  return new Promise((resolve, reject) => {
+  setTimeout(()=> {
+    console.log("u1 execute: " +g.transid);
+    resolve('u1: '+ g.transid);}, 200)
+});
+}
+
 function revertS1(g){
   return new Promise((resolve, reject) => {
   setTimeout(()=> {
@@ -78,14 +86,14 @@ function revertS2(g){
 }
 
 
-let atmS = function(g){
-return from(s1(g)).pipe(
+let atmS = function(rs){
+return from(s1(rs.transaction)).pipe(
   catchError(err => {
-    return from(revertS1('2')).pipe(concatMap(()=> throwError(err))
-  )}),
-  mergeMap(() => s2(g)),
+    return throwError(err); //from(revertS1('2')).pipe(concatMap(()=> throwError(err))
+  }),
+  mergeMap(() => s2(rs.transaction)),
   catchError(err => {
-    console.log(err.chainid)
+    //console.log(err.chainid)
     if(err.chainid === 2){
       return from(revertS2('2')).pipe(concatMap(()=> throwError(err)))
     }else{
@@ -93,13 +101,23 @@ return from(s1(g)).pipe(
     }
     
   }),
-  mergeMap(() => s3(g)),
+  mergeMap(rsy => {
+    return s3(rs.transaction)
+    }),
   catchError(err => {
     return throwError(err)
   }),
-  mergeMap(() => s4(g)),
+  mergeMap(() => s4(rs.transaction)),
   catchError(err => {
     return of({error: err});
+  }),
+  mergeMap((rsy) => {
+    console.log("HJJ"+ JSON.stringify(rs))
+    if(rs.networkStatus === 'offline'){
+      return of(null)
+    }else{
+      return from(u1(rs.transaction))
+    }
   }))
 }
 
@@ -116,7 +134,11 @@ const transactionObservable = transactionSubject.pipe(withLatestFrom(networkStat
 }))
 
 
-let persistTransactionObservable = transactionObservable.pipe(concatMap((transaction) => atmS(transaction)));
+let persistTransactionObservable = transactionSubject.pipe(withLatestFrom(networkStatus),map((rs)=> {
+  return {transaction: {transid: rs[0]}, networkStatus: rs[1]}
+}),concatMap((rs) => {console.log(rs.transaction); return atmS(rs)}));
+
+//persistTransactionObservable.pipe()
 
 persistTransactionObservable.subscribe(data => {
   console.log(data)
@@ -125,9 +147,10 @@ persistTransactionObservable.subscribe(data => {
 // let combined = transactionSubject.pipe(merge(networkStatus))
 
 
-
 networkChange('online')
+sendTransaction("t0");
 sendTransaction("t1");
+networkChange('online')
 sendTransaction("t2");
 networkChange('offline')
 sendTransaction("t3");
